@@ -54,8 +54,13 @@ class AgentLoop:
         self.tool_map = tool_map
         self.config = config
 
-    def run(self, messages: list) -> None:
-        """Run until the model returns a response with no tool calls."""
+    def run(self, messages: list) -> bool:
+        """Run one full turn until the model returns a response with no tool calls.
+        
+        Returns:
+            True if model has finished responding (no more tool calls),
+            False if more processing is needed (should not happen in normal flow)
+        """
         rounds_since_todo = 0
 
         while True:
@@ -98,7 +103,9 @@ class AgentLoop:
             messages.append(response)
 
             if not response.tool_calls:
-                return  # model is done
+                # Model finished this turn - don't exit, just return control to REPL
+                # User will provide next input when ready
+                return True
 
             # ---- tool execution ---------------------------------------------
             used_todo = False

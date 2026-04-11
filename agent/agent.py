@@ -178,7 +178,7 @@ class Agent:
         last = history[-1]
         return last.content if isinstance(last, AIMessage) and last.content else ""
 
-    def repl(self, prompt: str = "agent") -> None:
+    def repl(self, prompt: str = "amateur_agent") -> None:
         """Start an interactive REPL session.
 
         Maintains full conversation history across turns.
@@ -209,11 +209,22 @@ class Agent:
             except (EOFError, KeyboardInterrupt):
                 print()
                 break
-            if query.strip().lower() in ("q", "exit", ""):
+            if query.strip().lower() in ("q", "exit"):
                 break
+            if not query.strip():
+                # 空输入不处理，继续等待
+                continue
             history.append(HumanMessage(content=query))
-            self._loop.run(history)
-            last = history[-1]
-            if isinstance(last, AIMessage) and last.content:
-                print(last.content)
-            print()
+            try:
+                self._loop.run(history)
+                last = history[-1]
+                if isinstance(last, AIMessage) and last.content:
+                    print(last.content)
+            except Exception as e:
+                print(f"\n\033[31mError: {e}\033[0m")
+                import traceback
+                traceback.print_exc()
+            # 强制换行并清空行缓冲，防止提示符重叠
+            import sys
+            sys.stdout.write('\n')
+            sys.stdout.flush()
