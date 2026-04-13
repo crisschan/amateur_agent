@@ -89,7 +89,8 @@ Print final AIMessage to user
 | `base_url` | `OLLAMA_BASE_URL` env or `http://localhost:11434` | Ollama endpoint |
 | `temperature` | `0.2` | LLM sampling temperature |
 | `max_tokens` | `4096` | Max tokens per LLM response |
-| `workdir` | `Path.cwd()` | Workspace root; all file ops are scoped here |
+| `workdir` | `Path.cwd()` | Directory where shell commands run (bash cwd) |
+| `workspace` | `None` (falls back to `workdir`) | File-operation boundary; all file I/O and path checks are scoped here |
 | `context_threshold` | `50000` | Char count that triggers auto-compact |
 | `keep_recent_tools` | `3` | Tool results preserved verbatim during micro-compact |
 | `todo_nag_interval` | `3` | Rounds before reminding model to update todos |
@@ -101,9 +102,25 @@ Print final AIMessage to user
 | `enable_compact` | `True` | Context compaction |
 
 Derived paths (read-only properties):
+- `effective_workspace` → `workspace` if set, else `workdir`
 - `skills_dir` → `workdir/skills`
 - `tasks_dir` → `workdir/.tasks`
 - `transcripts_dir` → `workdir/.transcripts`
+
+**`AgentConfig.from_file(path)`** loads settings from an `agent.json` file. Keys present in the file override dataclass defaults; unknown keys are silently ignored. Paths (`workdir`, `workspace`) are resolved relative to the config file's directory.
+
+Example `agent.json`:
+```json
+{
+  "model": "qwen2.5-coder",
+  "workdir": ".",
+  "workspace": "./src",
+  "enable_background": false,
+  "context_threshold": 30000
+}
+```
+
+Load priority: **dataclass defaults** < **agent.json values** < **CLI flags**.
 
 ### 3.2 Agent — `agent/agent.py`
 
@@ -141,16 +158,20 @@ Implements the LLM ↔ tool cycle. Stateless between turns; the caller owns the 
 
 ### 3.4 Filesystem Tools — `agent/tools/filesystem.py`
 
-Always enabled. All paths are validated to stay within `workdir`.
+Always enabled. Accepts two boundaries:
+- `workdir` — the shell cwd for `bash`
+- `workspace` — the file-operation boundary for all read/write/edit tools and path checks (defaults to `workdir` when not set)
 
 | Tool | Args | Notes |
-|---|---|---|
-| `bash` | `command: str` | 120s timeout; dangerous commands blocked |
-| `read_file` | `path: str, limit: int = None` | Output capped at 50 KB |
-| `write_file` | `path: str, content: str` | Creates parent directories |
-| `edit_file` | `path: str, old_text: str, new_text: str` | Replaces first occurrence |
+|---|---|
+| `bash` | `command: str` | 120s timeout; dangerous commands blocked; absolute paths in command checked against workspace |
+| `read_file` | `path: str, limit: int = None` | Output capped at 50 KB; path validated against workspace |
+| `write_file` | `path: str, content: str` | Creates parent directories; path validated against workspace |
+| `edit_file` | `path: str, old_text: str, new_text: str` | Replaces first occurrence; path validated against workspace |
 
-**Path safety** (`_make_safe_path`): resolves the path and checks it is relative to `workdir`. Raises `ValueError` if not.
+**Path safety** (`_make_safe_path`): resolves the path and checks it is relative to `effective_workspace`. Raises `ValueError` if not.
+
+**Bash workspace check** (`_check_workspace_paths`): scans the command string for absolute paths using regex, then checks each against `workspace`. System paths (`/tmp/`, `/dev/null`, etc.) are whitelisted. Returns an error string if a violation is found.
 
 **Dangerous command detection** (`_safety.py`): string-match against a blocklist (`rm -rf /`, `sudo`, `shutdown`, `reboot`, fork bomb, etc.).
 
@@ -314,7 +335,11 @@ Model calls task("refactor auth module")
 
 ### 5.1 Path Traversal
 
-Every path passed to filesystem tools is resolved and checked against `workdir`. Paths that escape the workspace raise `ValueError` before any I/O occurs.
+Every path passed to filesystem tools is resolved and checked against `effective_workspace` (= `workspace` if set, else `workdir`). Paths that escape the workspace raise `ValueError` before any I/O occurs.
+
+### 5.2 Bash Workspace Enforcement
+
+When `workspace` is configured, the `bash` tool scans the command string for absolute paths and rejects any that fall outside the workspace. System paths (`/tmp/`, `/dev/null`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr`) are whitelisted.
 
 ### 5.2 Dangerous Command Blocking
 
@@ -390,15 +415,18 @@ Edit `Agent._build_system()`. Each manager contributes a block; add or remove bl
 ```
 python main.py [options]
 
+  --config FILE        Path to agent.json config file (auto-detects agent.json in cwd)
   --model MODEL        Ollama model name
-  --workdir DIR        Workspace directory
-  --no-todo            Disable in-memory todo list
+  --workdir DIR        Shell working directory
+  --workspace DIR      File-operation boundary (restricts all file I/O to this path)
+  --no-todo          Disable in-memory todo list
   --no-tasks           Disable persistent task store
   --no-skills          Disable skill loading
   --no-background      Disable background execution
   --no-subagent        Disable subagent spawning
   --no-compact         Disable context compaction
 ```
+
 
 ### 8.3 Runtime Directories
 

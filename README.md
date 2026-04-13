@@ -143,15 +143,33 @@ task("分析这个项目的依赖关系", "需要详细的分析报告")
 python main.py [选项]
 
 选项:
+  --config FILE          agent.json配置文件路径（自动检测当前目录下的agent.json）
   --model MODEL          Ollama模型名称（覆盖OLLAMA_MODEL环境变量）
-  --workdir DIR          工作目录（默认为当前目录）
-  --no-todo              禁用内存待办事项列表
-  --no-tasks             禁用持久化任务存储
+  --workdir DIR          工作目录（shell命令的cwd，默认为当前目录）
+  --workspace DIR        文件操作边界（所有文件读写限制在此目录内）
+  --no-todo         禁用内存待办事项列表
+  --no-tasks         禁用持久化任务存储
   --no-skills            禁用技能加载
   --no-background        禁用后台执行
-  --no-subagent          禁用子代理生成
+  --no-subagent       禁用子代理生成
   --no-compact           禁用上下文压缩
 ```
+
+### 配置文件 agent.json
+
+在项目根目录创建 `agent.json` 可以持久化配置，无需每次传命令行参数：
+
+```json
+{
+  "model": "qwen2.5-coder",
+  "workdir": ".",
+  "workspace": "./src",
+  "enable_background": false,
+  "context_threshold": 30000
+}
+```
+
+加载优先级：**默认值** < **agent.json** < **命令行参数**
 
 ### 环境变量
 
@@ -272,9 +290,11 @@ agent.repl()
 代理会自动检测并阻止危险的shell命令，防止意外损坏系统。
 
 ### 2. 路径安全
-计划实现: 文件操作将被限制在指定的工作目录内，防止访问外部敏感文件。
+所有文件操作（read_file、write_file、edit_file）都会验证路径是否在 `workspace`（或 `workdir`）内，路径穿越会被拒绝。
 
-> 📌 注意: 此功能目前正在开发中，尚未完全实现。
+bash 工具同样会扫描命令中的绝对路径，阻止访问 workspace 外的文件。
+
+通过 `--workspace DIR` 或 `agent.json` 中的 `workspace` 字段配置边界。
 
 ### 3. 工具隔离
 子代理仅继承文件系统工具和技能加载工具，其他危险操作默认禁用。
