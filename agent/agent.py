@@ -56,7 +56,7 @@ class Agent:
         )
 
         # Core filesystem tools — always enabled
-        fs_tools, _run_bash = create_filesystem_tools(cfg.workdir)
+        fs_tools, _run_bash = create_filesystem_tools(cfg.workdir, cfg.workspace)
         tools: list = list(fs_tools)
 
         # Tools available to subagent children (filesystem only, + skills below)
@@ -130,6 +130,12 @@ class Agent:
             f"You are a coding agent working in {cfg.workdir}.",
             "Use your tools to solve tasks. Act, don't explain.",
         ]
+        if cfg.workspace is not None:
+            parts.append(
+                f"WORKSPACE RESTRICTION: You are restricted to {cfg.workspace}. "
+                "All file operations must stay within this directory. "
+              "Do not attempt to read, write, or execute commands that access paths outside it."
+            )
         if cfg.enable_todo:
             parts.append(
                 "Use the todo tool to plan and track multi-step work within this session."

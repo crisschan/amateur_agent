@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Amateur Agent — interactive AI coding agent CLI.
+"""Amateur Agent -- interactive AI coding agent CLI.
 
 Usage:
-    python main.py                         # default settings
-    python main.py --model qwen2.5-coder   # different Ollama model
+    python main.py            # default settings
+    python main.py --config agent.json          # load config file
+    python main.py --config agent.json --model qwen2.5-coder  # override model
     python main.py --no-background         # disable background tasks
-    python main.py --workdir /tmp/project  # different workspace
 """
 from __future__ import annotations
 
@@ -18,10 +18,13 @@ from agent.config import AgentConfig
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Amateur Agent — AI coding agent REPL backed by Ollama"
+        description="Amateur Agent -- AI coding agent REPL backed by Ollama"
     )
-    p.add_argument("--model", default=None, help="Ollama model name (overrides OLLAMA_MODEL env)")
-    p.add_argument("--workdir", default=None, type=Path, help="Workspace directory (default: cwd)")
+    p.add_argument("--config", default=None, type=Path,
+        help="Path to agent.json config file (default: auto-detect agent.json in cwd)")
+    p.add_argument("--model", default=None, help="Ollama model name (overrides config)")
+    p.add_argument("--workdir", default=None, type=Path, help="Working directory (overrides config)")
+    p.add_argument("--workspace", default=None, type=Path, help="Workspace boundary for file ops (overrides config)")
     p.add_argument("--no-todo", action="store_true", help="Disable in-memory todo list")
     p.add_argument("--no-tasks", action="store_true", help="Disable persistent task store")
     p.add_argument("--no-skills", action="store_true", help="Disable skill loading")
@@ -31,14 +34,30 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    cfg = AgentConfig()
+def _load_config(args: argparse.Namespace) -> AgentConfig:
+    """Build AgentConfig: file defaults -> agent.json -> CLI overrides."""
+    # 1. Determine config file path
+    config_path: Path | None = None
+    if args.config:
+        config_path = args.config.resolve()
+    else:
+        candidate = Path.cwd() / "agent.json"
+        if candidate.exists():
+            config_path = candidate
 
+    # 2. Load from file or use defaults
+    if config_path is not None:
+        cfg = AgentConfig.from_file(config_path)
+    else:
+        cfg = AgentConfig()
+
+    # 3. Apply CLI overrides (only when explicitly provided)
     if args.model:
         cfg.model = args.model
     if args.workdir:
         cfg.workdir = args.workdir.resolve()
+    if args.workspace:
+        cfg.workspace = args.workspace.resolve()
     if args.no_todo:
         cfg.enable_todo = False
     if args.no_tasks:
@@ -52,6 +71,12 @@ def main() -> None:
     if args.no_compact:
         cfg.enable_compact = False
 
+    return cfg
+
+
+def main() -> None:
+    args = parse_args()
+    cfg = _load_config(args)
     Agent(cfg).repl()
 
 
